@@ -1,0 +1,31 @@
+name: Ativar roteirizador
+on:
+  push:
+    paths:
+      - 'route-optimizer.js'
+      - '.github/workflows/activate-route-optimizer.yml'
+permissions:
+  contents: write
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Injetar roteirizador no app
+        run: |
+          if ! grep -q 'route-optimizer.js' index.html; then
+            python3 - <<'PY'
+          from pathlib import Path
+          p=Path("index.html")
+          s=p.read_text()
+          s=s.replace("</body></html>", '<script src="./route-optimizer.js"></script></body></html>')
+          p.write_text(s)
+          PY
+          fi
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git diff --cached --quiet || git commit -m "v6.5: ativa roteirizador no app"
+          git push
