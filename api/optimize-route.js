@@ -31,8 +31,8 @@ export default async function handler(req,res){
     const r=await fetch('https://routeoptimization.googleapis.com/v1/projects/'+encodeURIComponent(project)+':optimizeTours',{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify({timeout:'30s',considerRoadTraffic:true,populatePolylines:true,model})});
     const j=await r.json(); if(!r.ok) return res.status(r.status).json({error:j.error?.message||'Google optimization failed',details:j.error||null});
     const route=j.routes?.[0]||{};
-    const ordered=(route.visits||[]).map(v=>stops[v.shipmentIndex]).filter(Boolean);
-    const skipped=(j.skippedShipments||[]).map(s=>stops[s.index]).filter(Boolean);
+    const ordered=(route.visits||[]).map(v=>stops[v.shipmentIndex ?? 0]).filter(Boolean);
+    const skipped=(j.skippedShipments||[]).map(s=>stops[s.index ?? 0]).filter(Boolean);
     return res.status(200).json({ordered,skipped,metrics:route.metrics||{},polyline:route.routePolyline?.points||null});
   }catch(e){return res.status(500).json({error:e.message||String(e)})}
 }
