@@ -1,4 +1,4 @@
-// Entrega de Kits - roteirizacao operacional v6.10
+// Entrega de Kits - roteirizacao operacional v6.11
 (function(){
   const oldDeliverView=deliverView, oldStatus=status, oldCreateBatch=createBatch;
   function pendingOrdered(){return S.items.filter(i=>i.status!=='delivered').sort((a,b)=>(a.position||999999)-(b.position||999999))}
@@ -27,9 +27,9 @@
       try{if(result.polyline&&S.batch?.id)localStorage.setItem('kitRoutePolyline:'+S.batch.id,result.polyline)}catch(e){}
       let byId=new Map(geo.map(r=>[String(r.i.id),r.i]));
       let final=(result.ordered||[]).map(r=>byId.get(String(r.id))).filter(Boolean);
-      let used=new Set(final.map(i=>i.id)),missing=pending.filter(i=>!used.has(i.id));
-      if(final.length<2)throw new Error('O Google não retornou uma sequência válida para a rota.');
-      let seq=[...final,...missing];
+      if(final.length!==geo.length)throw new Error('O Google não retornou todas as '+geo.length+' entregas. A ordem anterior foi mantida.');
+      let geoIds=new Set(geo.map(r=>r.i.id)),unlocated=pending.filter(i=>!geoIds.has(i.id));
+      let seq=[...final,...unlocated];
       await saveOrder(seq);await openBatch(S.batch);
       if(!opts.silent)alert('Rota pronta: '+final.length+' endereços otimizados globalmente pelo Google a partir da sua localização.');
       return true
@@ -53,12 +53,12 @@
     let wrap=document.getElementById('optimizedMapWrap'),box=document.getElementById('optimizedMap'),status=document.getElementById('optimizedMapStatus');
     if(!wrap||!box)return;if(wrap.style.display!=='none'){wrap.style.display='none';return}wrap.style.display='block';status.textContent='Carregando mapa na ordem otimizada...';
     try{await loadGoogleMaps()}catch(e){status.textContent='Não foi possível carregar o Google Maps.';return}
-    let rows=[...S.items].sort((a,b)=>(a.position||999999)-(b.position||999999)),geocoder=new google.maps.Geocoder(),map=new google.maps.Map(box,{center:{lat:-23.69,lng:-46.56},zoom:11,mapTypeControl:false,streetViewControl:false,fullscreenControl:true}),bounds=new google.maps.LatLngBounds(),info=new google.maps.InfoWindow(),found=0,failed=0;
+    let rows=pendingOrdered(),geocoder=new google.maps.Geocoder(),map=new google.maps.Map(box,{center:{lat:-23.69,lng:-46.56},zoom:11,mapTypeControl:false,streetViewControl:false,fullscreenControl:true}),bounds=new google.maps.LatLngBounds(),info=new google.maps.InfoWindow(),found=0,failed=0;
     for(let k=0;k<rows.length;k++){let i=rows[k],a=address(i.c||{});if(!a){failed++;continue}let g=await geocodeGoogle(geocoder,a);if(!g.pos){failed++;continue}found++;bounds.extend(g.pos);let label=String(k+1),mk=new google.maps.Marker({position:g.pos,map,label:{text:label,color:'#fff',fontWeight:'800',fontSize:'10px'},title:'Entrega '+label+' • '+(i.c?.name||'Contato')});mk.addListener('click',()=>{info.setContent('<div style="max-width:260px"><b>Entrega '+label+' • '+x(i.c?.name||'Contato')+'</b><br><span>'+x(a)+'</span></div>');info.open({map,anchor:mk})});status.textContent='Montando mapa: '+found+' de '+rows.length+' pontos';if(!g.cached)await sleep(50)}
     let encoded='';try{encoded=localStorage.getItem('kitRoutePolyline:'+S.batch?.id)||''}catch(e){}
     if(encoded){let roadPath=decodePolyline(encoded);roadPath.forEach(p=>bounds.extend(p));new google.maps.Polyline({path:roadPath,map,geodesic:false,strokeColor:'#0969f0',strokeOpacity:.85,strokeWeight:5})}
     if(found){map.fitBounds(bounds,45);google.maps.event.addListenerOnce(map,'idle',()=>{if(map.getZoom()>17)map.setZoom(17)})}
-    status.innerHTML='<b>'+found+' entregas na ordem otimizada'+(failed?' • '+failed+' não localizadas':'')+'</b>'+(encoded?' • linha azul = percurso real pelas ruas':'<br><span>Recalcule a rota uma vez para carregar o percurso real pelas ruas.</span>')
+    status.innerHTML='<b>'+found+' entregas pendentes na ordem otimizada'+(failed?' • '+failed+' não localizadas':'')+'</b>'+(encoded?' • linha azul = percurso real pelas ruas':'<br><span>Recalcule a rota uma vez para carregar o percurso real pelas ruas.</span>')
   }
   function labelName(c){return String(c?.name||'Destinatário').trim()}
   function firstName(c){return labelName(c).split(/\s+/)[0]||'Olá'}
