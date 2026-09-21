@@ -25,10 +25,10 @@ export default async function handler(req,res){
     const model={
       globalStartTime:secondsTimestamp(start),globalEndTime:secondsTimestamp(end),
       shipments:stops.map((s,idx)=>({label:String(s.id||idx),deliveries:[{arrivalLocation:{latitude:s.lat,longitude:s.lng},duration:String(serviceSeconds)+'s'}],penaltyCost:1000000})),
-      vehicles:[{label:'delivery-route',startLocation:{latitude:origin.lat,longitude:origin.lng},routeDurationLimit:{maxDuration:String(maxSeconds)+'s'},costPerHour:1}]
+      vehicles:[{label:'delivery-route',startLocation:{latitude:origin.lat,longitude:origin.lng},routeDurationLimit:{maxDuration:String(maxSeconds)+'s'},costPerHour:1,costPerTraveledHour:100}]
     };
     const token=await accessToken();
-    const r=await fetch('https://routeoptimization.googleapis.com/v1/projects/'+encodeURIComponent(project)+':optimizeTours',{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify({timeout:'30s',considerRoadTraffic:true,populatePolylines:true,model})});
+    const r=await fetch('https://routeoptimization.googleapis.com/v1/projects/'+encodeURIComponent(project)+':optimizeTours',{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify({timeout:'30s',searchMode:'CONSUME_ALL_AVAILABLE_TIME',considerRoadTraffic:true,populatePolylines:true,model})});
     const j=await r.json(); if(!r.ok) return res.status(r.status).json({error:j.error?.message||'Google optimization failed',details:j.error||null});
     const route=j.routes?.[0]||{};
     const ordered=(route.visits||[]).map(v=>stops[v.shipmentIndex ?? 0]).filter(Boolean);
