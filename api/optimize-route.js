@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
 function b64url(input){return Buffer.from(input).toString('base64url')}
+function secondsTimestamp(date){return date.toISOString().replace(/\.\d{3}Z$/,'Z')}
 async function accessToken(){
   const email=process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const key=(process.env.GOOGLE_PRIVATE_KEY||'').replace(/\\n/g,'\n');
@@ -22,7 +23,7 @@ export default async function handler(req,res){
     if(!project) throw new Error('GOOGLE_CLOUD_PROJECT not configured');
     const start=new Date(), end=new Date(start.getTime()+24*3600*1000);
     const model={
-      globalStartTime:start.toISOString(),globalEndTime:end.toISOString(),
+      globalStartTime:secondsTimestamp(start),globalEndTime:secondsTimestamp(end),
       shipments:stops.map((s,idx)=>({label:String(s.id||idx),deliveries:[{arrivalLocation:{latitude:s.lat,longitude:s.lng},duration:String(serviceSeconds)+'s'}],penaltyCost:1000000})),
       vehicles:[{label:'delivery-route',startLocation:{latitude:origin.lat,longitude:origin.lng},routeDurationLimit:{maxDuration:String(maxSeconds)+'s'},costPerHour:1}]
     };
