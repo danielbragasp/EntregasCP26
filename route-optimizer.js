@@ -1,4 +1,4 @@
-// Entrega de Kits - roteirizacao operacional v6.6
+// Entrega de Kits - roteirizacao operacional v6.9
 (function(){
   const oldDeliverView=deliverView, oldStatus=status, oldCreateBatch=createBatch;
   function pendingOrdered(){return S.items.filter(i=>i.status!=='delivered').sort((a,b)=>(a.position||999999)-(b.position||999999))}
@@ -19,12 +19,18 @@
     try{
       progress('Preparando '+pending.length+' entregas...');
       let geo=await geocodeItems(pending);if(geo.length<2)throw new Error('Não foi possível localizar endereços suficientes ('+geo.length+' de '+pending.length+').');
-      progress('Montando sequência geográfica...');
-      let ordered=nearest(geo,start),final=[],origin=start,parts=chunk(ordered,24);
-      for(let k=0;k<parts.length;k++){progress('Otimizando trecho '+(k+1)+' de '+parts.length+'...');let o=await dirOptimize(parts[k],origin);final.push(...o);let last=o[o.length-1];origin={lat:last.lat,lng:last.lng}}
-      let used=new Set(final.map(r=>r.i.id)),missing=pending.filter(i=>!used.has(i.id)),seq=[...final.map(r=>r.i),...missing];
+      progress('Otimizando '+geo.length+' entregas com Google...');
+      let payload={origin:start,stops:geo.map(r=>({id:r.i.id,lat:r.lat,lng:r.lng})),maxSeconds:28800,serviceSeconds:300};
+      let response=await fetch('/api/optimize-route',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
+      let result=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(result.error||'Google Route Optimization não respondeu.');
+      let byId=new Map(geo.map(r=>[String(r.i.id),r.i]));
+      let final=(result.ordered||[]).map(r=>byId.get(String(r.id))).filter(Boolean);
+      let used=new Set(final.map(i=>i.id)),missing=pending.filter(i=>!used.has(i.id));
+      if(final.length<2)throw new Error('O Google não retornou uma sequência válida para a rota.');
+      let seq=[...final,...missing];
       await saveOrder(seq);await openBatch(S.batch);
-      if(!opts.silent)alert('Rota pronta: '+final.length+' endereços ordenados a partir da sua localização.');
+      if(!opts.silent)alert('Rota pronta: '+final.length+' endereços otimizados globalmente pelo Google a partir da sua localização.');
       return true
     }catch(e){alert('Não foi possível otimizar a rota: '+(e.message||e));render();return false}
   }
