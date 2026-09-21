@@ -17,15 +17,15 @@ async function accessToken(){
 export default async function handler(req,res){
   if(req.method!=='POST') return res.status(405).json({error:'Method not allowed'});
   try{
-    const {origin,stops,maxSeconds=28800,serviceSeconds=300}=req.body||{};
+    const {origin,stops,maxSeconds=28800,serviceSeconds=300,endLocation=null,endTime=null,selectToFit=false}=req.body||{};
     if(!origin||!Number.isFinite(origin.lat)||!Number.isFinite(origin.lng)||!Array.isArray(stops)||stops.length<2) return res.status(400).json({error:'Invalid route input'});
     const project=process.env.GOOGLE_CLOUD_PROJECT;
     if(!project) throw new Error('GOOGLE_CLOUD_PROJECT not configured');
-    const start=new Date(), end=new Date(start.getTime()+24*3600*1000);
+    const start=new Date(), requestedEnd=endTime?new Date(endTime):null, end=(requestedEnd&&!Number.isNaN(requestedEnd.getTime())&&requestedEnd>start)?requestedEnd:new Date(start.getTime()+24*3600*1000);
     const model={
       globalStartTime:secondsTimestamp(start),globalEndTime:secondsTimestamp(end),
-      shipments:stops.map((s,idx)=>({label:String(s.id||idx),deliveries:[{arrivalLocation:{latitude:s.lat,longitude:s.lng},duration:String(serviceSeconds)+'s'}]})),
-      vehicles:[{label:'delivery-route',startLocation:{latitude:origin.lat,longitude:origin.lng},costPerHour:100,costPerTraveledHour:100}]
+      shipments:stops.map((s,idx)=>({label:String(s.id||idx),deliveries:[{arrivalLocation:{latitude:s.lat,longitude:s.lng},duration:String(serviceSeconds)+'s'}],...(selectToFit?{penaltyCost:1000000}:{} )})),
+      vehicles:[{label:'delivery-route',startLocation:{latitude:origin.lat,longitude:origin.lng},...(endLocation&&Number.isFinite(endLocation.lat)&&Number.isFinite(endLocation.lng)?{endLocation:{latitude:endLocation.lat,longitude:endLocation.lng}}:{}),...(requestedEnd&&!Number.isNaN(requestedEnd.getTime())&&requestedEnd>start?{endTimeWindows:[{endTime:secondsTimestamp(requestedEnd)}]}:{}),...(!selectToFit&&maxSeconds?{routeDurationLimit:{maxDuration:String(maxSeconds)+'s'}}:{}),costPerHour:100,costPerTraveledHour:100}]
     };
     const token=await accessToken();
     const r=await fetch('https://routeoptimization.googleapis.com/v1/projects/'+encodeURIComponent(project)+':optimizeTours',{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify({timeout:'30s',searchMode:'CONSUME_ALL_AVAILABLE_TIME',considerRoadTraffic:true,populatePolylines:true,model})});
@@ -33,6 +33,6 @@ export default async function handler(req,res){
     const route=j.routes?.[0]||{};
     const ordered=(route.visits||[]).map(v=>stops[v.shipmentIndex ?? 0]).filter(Boolean);
     const skipped=(j.skippedShipments||[]).map(s=>stops[s.index ?? 0]).filter(Boolean);
-    return res.status(200).json({ordered,skipped,metrics:route.metrics||{},polyline:route.routePolyline?.points||null});
+    return res.status(200).json({ordered,skipped,metrics:route.metrics||{},polyline:route.routePolyline?.points||null,routeStartTime:route.vehicleStartTime||null,routeEndTime:route.vehicleEndTime||null});
   }catch(e){return res.status(500).json({error:e.message||String(e)})}
 }
