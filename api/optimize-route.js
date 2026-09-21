@@ -24,8 +24,8 @@ export default async function handler(req,res){
     const start=new Date(), end=new Date(start.getTime()+24*3600*1000);
     const model={
       globalStartTime:secondsTimestamp(start),globalEndTime:secondsTimestamp(end),
-      shipments:stops.map((s,idx)=>({label:String(s.id||idx),deliveries:[{arrivalLocation:{latitude:s.lat,longitude:s.lng},duration:String(serviceSeconds)+'s'}],penaltyCost:1000000})),
-      vehicles:[{label:'delivery-route',startLocation:{latitude:origin.lat,longitude:origin.lng},routeDurationLimit:{maxDuration:String(maxSeconds)+'s'},costPerHour:1,costPerTraveledHour:100}]
+      shipments:stops.map((s,idx)=>({label:String(s.id||idx),deliveries:[{arrivalLocation:{latitude:s.lat,longitude:s.lng},duration:String(serviceSeconds)+'s'}]})),
+      vehicles:[{label:'delivery-route',startLocation:{latitude:origin.lat,longitude:origin.lng},costPerHour:100,costPerTraveledHour:100}]
     };
     const token=await accessToken();
     const r=await fetch('https://routeoptimization.googleapis.com/v1/projects/'+encodeURIComponent(project)+':optimizeTours',{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify({timeout:'30s',searchMode:'CONSUME_ALL_AVAILABLE_TIME',considerRoadTraffic:true,populatePolylines:true,model})});
