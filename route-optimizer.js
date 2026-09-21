@@ -23,7 +23,8 @@
       let payload={origin:start,stops:geo.map(r=>({id:r.i.id,lat:r.lat,lng:r.lng})),maxSeconds:28800,serviceSeconds:300};
       let response=await fetch('/api/optimize-route',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
       let result=await response.json().catch(()=>({}));
-      if(!response.ok)throw new Error(result.error||'Google Route Optimization não respondeu.');\n      try{if(result.polyline&&S.batch?.id)localStorage.setItem('kitRoutePolyline:'+S.batch.id,result.polyline)}catch(e){}
+      if(!response.ok)throw new Error(result.error||'Google Route Optimization não respondeu.');
+      try{if(result.polyline&&S.batch?.id)localStorage.setItem('kitRoutePolyline:'+S.batch.id,result.polyline)}catch(e){}
       let byId=new Map(geo.map(r=>[String(r.i.id),r.i]));
       let final=(result.ordered||[]).map(r=>byId.get(String(r.id))).filter(Boolean);
       let used=new Set(final.map(i=>i.id)),missing=pending.filter(i=>!used.has(i.id));
