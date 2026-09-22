@@ -11,75 +11,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Aplicar correcoes seguras no app
+      - name: Aplicar v6.16
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
-          # Mantem deduplicacao de contatos no app principal.
-          p=Path('index.html')
-          s=p.read_text()
-          if 'route-optimizer.js' not in s:
-              s=s.replace('</body></html>', '<script src="./route-optimizer.js"></script></body></html>')
-          old='S.all=a;S.busy=false}'
-          new="S.all=[...new Map(a.filter(c=>c.contact_id).map(c=>[c.contact_id,c])).values()];S.busy=false}"
-          if old in s:
-              s=s.replace(old,new,1)
+          import base64
+          idx=Path('index.html')
+          s=idx.read_text()
           s=s.replace('route-optimizer.js?v=6.15.0','route-optimizer.js?v=6.16.0')
-          p.write_text(s)
-
-          # Progresso visual + validacao atomica da quantidade criada.
+          idx.write_text(s)
           p=Path('route-optimizer.js')
           s=p.read_text()
           s=s.replace('roteirizacao operacional v6.15','roteirizacao operacional v6.16')
           old_progress="  function progress(t){let b=document.getElementById('optimizeRoute');if(b){b.disabled=true;b.textContent=t}let m=document.getElementById('make');if(m){m.disabled=true;m.textContent=t}}"
-          new_progress=r'''  function routeProgressOverlay(){let o=document.getElementById('routeBuildProgress');if(o)return o;o=document.createElement('div');o.id='routeBuildProgress';o.style.cssText='display:none;position:fixed;inset:0;z-index:99999;background:rgba(10,28,50,.72);align-items:center;justify-content:center;padding:22px';o.innerHTML='<div style="width:min(92vw,460px);background:#fff;border-radius:20px;padding:22px;box-shadow:0 24px 70px #0006"><div style="font-size:11px;font-weight:900;letter-spacing:.12em;color:#0969f0;text-transform:uppercase">Gerando rota</div><div id="routeBuildText" style="font-size:18px;font-weight:900;margin-top:8px">Preparando...</div><div style="height:14px;background:#e6edf5;border-radius:99px;overflow:hidden;margin-top:16px"><div id="routeBuildBar" style="height:100%;width:0;background:#15995b;transition:width .25s ease"></div></div><div id="routeBuildPct" style="font-size:26px;font-weight:900;color:#0969f0;margin-top:9px">0%</div><div style="font-size:12px;color:#6f8297;margin-top:7px;line-height:1.4">Não feche esta página enquanto a rota está sendo preparada.</div></div>';document.body.appendChild(o);return o}
-  function progress(t,p){let b=document.getElementById('optimizeRoute');if(b){b.disabled=true;b.textContent=t}let m=document.getElementById('make');if(m){m.disabled=true;m.textContent=t}let o=routeProgressOverlay();if(p==null){let q=String(t).match(/(\d+) de (\d+)/);if(q)p=Math.min(88,55+Math.round((+q[1]/Math.max(1,+q[2]))*25));else if(/Otimizando/i.test(t))p=82;else if(/Salvando/i.test(t))p=92;else p=20}p=Math.max(0,Math.min(100,Math.round(p)));o.style.display='flex';let tx=document.getElementById('routeBuildText'),bar=document.getElementById('routeBuildBar'),pc=document.getElementById('routeBuildPct');if(tx)tx.textContent=t;if(bar)bar.style.width=p+'%';if(pc)pc.textContent=p+'%'}
-  function finishProgress(t){progress(t||'Concluído',100);setTimeout(()=>{let o=document.getElementById('routeBuildProgress');if(o)o.style.display='none'},650)}
-  function failProgress(t){let o=routeProgressOverlay();o.style.display='flex';let tx=document.getElementById('routeBuildText'),bar=document.getElementById('routeBuildBar'),pc=document.getElementById('routeBuildPct');if(tx)tx.textContent=t||'Não foi possível concluir a rota';if(bar){bar.style.width='100%';bar.style.background='#c43d3d'}if(pc){pc.textContent='ERRO';pc.style.color='#c43d3d'}setTimeout(()=>{if(o)o.style.display='none'},3500)}'''
-          if old_progress not in s:
-              raise SystemExit('progress marker not found')
-          s=s.replace(old_progress,new_progress,1)
-
-          old_create=r'''  createBatch=async function(){
-    let start=await geoPos();if(!start){alert('Ative a localização do iPhone para criar a rota já otimizada a partir de onde você está.');return}
-    progress('Criando rota...');
-    await oldCreateBatch();
-    let b=S.batches?.[0];if(!b)return;
-    await openBatch(b);
-    let ok=await optimizeBatch({start,silent:true});
-    if(ok)alert('Rota criada e otimizada a partir da sua localização. Já pode iniciar as entregas.')
-  };'''
-          new_create=r'''  async function cleanupIncompleteBatch(b){try{let{data:rs}=await db.from('kit_delivery_routes').select('id').eq('batch_id',b.id),ids=(rs||[]).map(r=>r.id);if(ids.length)await db.from('kit_delivery_items').delete().in('route_id',ids);await db.from('kit_delivery_routes').delete().eq('batch_id',b.id);await db.from('kit_delivery_batches').delete().eq('id',b.id)}catch(e){console.error('cleanup incomplete batch',e)}}
-  createBatch=async function(){
-    let expected=S.all.filter(c=>S.sel.has(c.contact_id)&&n(c.address)&&n(c.city)).length;
-    if(!expected){alert('Selecione pelo menos uma entrega válida.');return}
-    progress('Validando '+expected+' entregas...',5);
-    let start=await geoPos();if(!start){failProgress('Localização não autorizada');alert('Ative a localização do iPhone para criar a rota já otimizada a partir de onde você está.');return}
-    try{
-      progress('Criando lote com '+expected+' entregas...',15);
-      await oldCreateBatch();
-      progress('Conferindo gravação do lote...',45);
-      let b=S.batches?.[0];if(!b)throw new Error('O lote não foi criado.');
-      await openBatch(b);
-      let actual=S.items.length;
-      if(actual!==expected){
-        let missing=expected-actual;
-        await cleanupIncompleteBatch(b);
-        S.batch=null;S.routes=[];S.items=[];await loadBatches();S.t='new';
-        failProgress('Lote incompleto: '+actual+' de '+expected);
-        alert('A criação foi interrompida para evitar uma rota incompleta.\n\nEsperados: '+expected+'\nGravados: '+actual+'\nFaltantes: '+Math.max(0,missing)+'\n\nO lote parcial foi descartado. Tente novamente; se persistir, agora o sistema não permitirá perder entregas silenciosamente.');
-        render();return
-      }
-      progress('Lote conferido: '+actual+' de '+expected+' entregas.',55);
-      let ok=await optimizeBatch({start,silent:true});
-      if(!ok){failProgress('Lote salvo, mas a otimização falhou');return}
-      finishProgress('Rota pronta com '+actual+' entregas');
-      alert('Rota criada, conferida e otimizada: '+actual+' de '+expected+' entregas gravadas corretamente.')
-    }catch(e){failProgress('Falha ao gerar rota');alert('Não foi possível criar a rota: '+(e.message||e));render()}
-  };'''
+          new_progress=base64.b64decode('ICBmdW5jdGlvbiByb3V0ZVByb2dyZXNzT3ZlcmxheSgpe2xldCBvPWRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdyb3V0ZUJ1aWxkUHJvZ3Jlc3MnKTtpZihvKXJldHVybiBvO289ZG9jdW1lbnQuY3JlYXRlRWxlbWVudCgnZGl2Jyk7by5pZD0ncm91dGVCdWlsZFByb2dyZXNzJztvLnN0eWxlLmNzc1RleHQ9J2Rpc3BsYXk6bm9uZTtwb3NpdGlvbjpmaXhlZDtpbnNldDowO3otaW5kZXg6OTk5OTk7YmFja2dyb3VuZDpyZ2JhKDEwLDI4LDUwLC43Mik7YWxpZ24taXRlbXM6Y2VudGVyO2p1c3RpZnktY29udGVudDpjZW50ZXI7cGFkZGluZzoyMnB4JztvLmlubmVySFRNTD0nPGRpdiBzdHlsZT0id2lkdGg6bWluKDkydncsNDYwcHgpO2JhY2tncm91bmQ6I2ZmZjtib3JkZXItcmFkaXVzOjIwcHg7cGFkZGluZzoyMnB4Ij48YiBpZD0icm91dGVCdWlsZFRleHQiPlByZXBhcmFuZG8uLi48L2I+PGRpdiBzdHlsZT0iaGVpZ2h0OjE0cHg7YmFja2dyb3VuZDojZTZlZGY1O2JvcmRlci1yYWRpdXM6OTlweDtvdmVyZmxvdzpoaWRkZW47bWFyZ2luLXRvcDoxNnB4Ij48ZGl2IGlkPSJyb3V0ZUJ1aWxkQmFyIiBzdHlsZT0iaGVpZ2h0OjEwMCU7d2lkdGg6MDtiYWNrZ3JvdW5kOiMxNTk5NWIiPjwvZGl2PjwvZGl2PjxkaXYgaWQ9InJvdXRlQnVpbGRQY3QiIHN0eWxlPSJmb250LXNpemU6MjZweDtmb250LXdlaWdodDo5MDA7Y29sb3I6IzA5NjlmMDttYXJnaW4tdG9wOjlweCI+MCU8L2Rpdj48c21hbGw+TsOjbyBmZWNoZSBlc3RhIHDDoWdpbmEgZW5xdWFudG8gYSByb3RhIGVzdMOhIHNlbmRvIHByZXBhcmFkYS48L3NtYWxsPjwvZGl2Pic7ZG9jdW1lbnQuYm9keS5hcHBlbmRDaGlsZChvKTtyZXR1cm4gb30KICBmdW5jdGlvbiBwcm9ncmVzcyh0LHApe2xldCBiPWRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdvcHRpbWl6ZVJvdXRlJyk7aWYoYil7Yi5kaXNhYmxlZD10cnVlO2IudGV4dENvbnRlbnQ9dH1sZXQgbT1kb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnbWFrZScpO2lmKG0pe20uZGlzYWJsZWQ9dHJ1ZTttLnRleHRDb250ZW50PXR9bGV0IG89cm91dGVQcm9ncmVzc092ZXJsYXkoKTtpZihwPT1udWxsKXtsZXQgcT1TdHJpbmcodCkubWF0Y2goLyhcZCspIGRlIChcZCspLyk7cD1xP01hdGgubWluKDg4LDU1K01hdGgucm91bmQoK3FbMV0vTWF0aC5tYXgoMSwrcVsyXSkpKjI1KSk6L090aW1pemFuZG8vaS50ZXN0KHQpPzgyOi9TYWx2YW5kby9pLnRlc3QodCk/OTI6MjB9cD1NYXRoLm1heCgwLE1hdGgubWluKDEwMCxNYXRoLnJvdW5kKHApKSk7by5zdHlsZS5kaXNwbGF5PSdmbGV4Jztkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgncm91dGVCdWlsZFRleHQnKS50ZXh0Q29udGVudD10O2RvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdyb3V0ZUJ1aWxkQmFyJykuc3R5bGUud2lkdGg9cCsnJSc7ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3JvdXRlQnVpbGRQY3QnKS50ZXh0Q29udGVudD1wKyclJ30KICBmdW5jdGlvbiBmaW5pc2hQcm9ncmVzcyh0KXtwcm9ncmVzcyh0fHwnQ29uY2x1w61kbycsMTAwKTtzZXRUaW1lb3V0KCgpPT57bGV0IG89ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3JvdXRlQnVpbGRQcm9ncmVzcycpO2lmKG8pby5zdHlsZS5kaXNwbGF5PSdub25lJ30sNjUwKX0KICBmdW5jdGlvbiBmYWlsUHJvZ3Jlc3ModCl7bGV0IG89cm91dGVQcm9ncmVzc092ZXJsYXkoKTtvLnN0eWxlLmRpc3BsYXk9J2ZsZXgnO2RvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdyb3V0ZUJ1aWxkVGV4dCcpLnRleHRDb250ZW50PXR8fCdGYWxoYSc7ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3JvdXRlQnVpbGRCYXInKS5zdHlsZS53aWR0aD0nMTAwJSc7ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3JvdXRlQnVpbGRQY3QnKS50ZXh0Q29udGVudD0nRVJSTyc7c2V0VGltZW91dCgoKT0+e2lmKG8pby5zdHlsZS5kaXNwbGF5PSdub25lJ30sMzUwMCl9').decode()
+          if old_progress in s:
+              s=s.replace(old_progress,new_progress,1)
+          old_create=base64.b64decode('ICBjcmVhdGVCYXRjaD1hc3luYyBmdW5jdGlvbigpewogICAgbGV0IHN0YXJ0PWF3YWl0IGdlb1BvcygpO2lmKCFzdGFydCl7YWxlcnQoJ0F0aXZlIGEgbG9jYWxpemHDp8OjbyBkbyBpUGhvbmUgcGFyYSBjcmlhciBhIHJvdGEgasOhIG90aW1pemFkYSBhIHBhcnRpciBkZSBvbmRlIHZvY8OqIGVzdMOhLicpO3JldHVybn0KICAgIHByb2dyZXNzKCdDcmlhbmRvIHJvdGEuLi4nKTsKICAgIGF3YWl0IG9sZENyZWF0ZUJhdGNoKCk7CiAgICBsZXQgYj1TLmJhdGNoZXM/LlswXTtpZighYilyZXR1cm47CiAgICBhd2FpdCBvcGVuQmF0Y2goYik7CiAgICBsZXQgb2s9YXdhaXQgb3B0aW1pemVCYXRjaCh7c3RhcnQsc2lsZW50OnRydWV9KTsKICAgIGlmKG9rKWFsZXJ0KCdSb3RhIGNyaWFkYSBlIG90aW1pemFkYSBhIHBhcnRpciBkYSBzdWEgbG9jYWxpemHDp8Ojby4gSsOhIHBvZGUgaW5pY2lhciBhcyBlbnRyZWdhcy4nKQogIH07').decode()
+          new_create=base64.b64decode('ICBhc3luYyBmdW5jdGlvbiBjbGVhbnVwSW5jb21wbGV0ZUJhdGNoKGIpe3RyeXtsZXR7ZGF0YTpyc309YXdhaXQgZGIuZnJvbSgna2l0X2RlbGl2ZXJ5X3JvdXRlcycpLnNlbGVjdCgnaWQnKS5lcSgnYmF0Y2hfaWQnLGIuaWQpLGlkcz0ocnN8fFtdKS5tYXAocj0+ci5pZCk7aWYoaWRzLmxlbmd0aClhd2FpdCBkYi5mcm9tKCdraXRfZGVsaXZlcnlfaXRlbXMnKS5kZWxldGUoKS5pbigncm91dGVfaWQnLGlkcyk7YXdhaXQgZGIuZnJvbSgna2l0X2RlbGl2ZXJ5X3JvdXRlcycpLmRlbGV0ZSgpLmVxKCdiYXRjaF9pZCcsYi5pZCk7YXdhaXQgZGIuZnJvbSgna2l0X2RlbGl2ZXJ5X2JhdGNoZXMnKS5kZWxldGUoKS5lcSgnaWQnLGIuaWQpfWNhdGNoKGUpe2NvbnNvbGUuZXJyb3IoJ2NsZWFudXAgaW5jb21wbGV0ZSBiYXRjaCcsZSl9fQogIGNyZWF0ZUJhdGNoPWFzeW5jIGZ1bmN0aW9uKCl7CiAgICBsZXQgZXhwZWN0ZWQ9Uy5hbGwuZmlsdGVyKGM9PlMuc2VsLmhhcyhjLmNvbnRhY3RfaWQpJiZuKGMuYWRkcmVzcykmJm4oYy5jaXR5KSkubGVuZ3RoOwogICAgaWYoIWV4cGVjdGVkKXthbGVydCgnU2VsZWNpb25lIHBlbG8gbWVub3MgdW1hIGVudHJlZ2EgdsOhbGlkYS4nKTtyZXR1cm59CiAgICBwcm9ncmVzcygnVmFsaWRhbmRvICcrZXhwZWN0ZWQrJyBlbnRyZWdhcy4uLicsNSk7CiAgICBsZXQgc3RhcnQ9YXdhaXQgZ2VvUG9zKCk7aWYoIXN0YXJ0KXtmYWlsUHJvZ3Jlc3MoJ0xvY2FsaXphw6fDo28gbsOjbyBhdXRvcml6YWRhJyk7YWxlcnQoJ0F0aXZlIGEgbG9jYWxpemHDp8OjbyBkbyBpUGhvbmUgcGFyYSBjcmlhciBhIHJvdGEgasOhIG90aW1pemFkYSBhIHBhcnRpciBkZSBvbmRlIHZvY8OqIGVzdMOhLicpO3JldHVybn0KICAgIHRyeXsKICAgICAgcHJvZ3Jlc3MoJ0NyaWFuZG8gbG90ZSBjb20gJytleHBlY3RlZCsnIGVudHJlZ2FzLi4uJywxNSk7CiAgICAgIGF3YWl0IG9sZENyZWF0ZUJhdGNoKCk7CiAgICAgIHByb2dyZXNzKCdDb25mZXJpbmRvIGdyYXZhw6fDo28gZG8gbG90ZS4uLicsNDUpOwogICAgICBsZXQgYj1TLmJhdGNoZXM/LlswXTtpZighYil0aHJvdyBuZXcgRXJyb3IoJ08gbG90ZSBuw6NvIGZvaSBjcmlhZG8uJyk7CiAgICAgIGF3YWl0IG9wZW5CYXRjaChiKTsKICAgICAgbGV0IGFjdHVhbD1TLml0ZW1zLmxlbmd0aDsKICAgICAgaWYoYWN0dWFsIT09ZXhwZWN0ZWQpewogICAgICAgIGxldCBtaXNzaW5nPWV4cGVjdGVkLWFjdHVhbDsKICAgICAgICBhd2FpdCBjbGVhbnVwSW5jb21wbGV0ZUJhdGNoKGIpOwogICAgICAgIFMuYmF0Y2g9bnVsbDtTLnJvdXRlcz1bXTtTLml0ZW1zPVtdO2F3YWl0IGxvYWRCYXRjaGVzKCk7Uy50PSduZXcnOwogICAgICAgIGZhaWxQcm9ncmVzcygnTG90ZSBpbmNvbXBsZXRvOiAnK2FjdHVhbCsnIGRlICcrZXhwZWN0ZWQpOwogICAgICAgIGFsZXJ0KCdBIGNyaWHDp8OjbyBmb2kgaW50ZXJyb21waWRhIHBhcmEgZXZpdGFyIHVtYSByb3RhIGluY29tcGxldGEuXG5cbkVzcGVyYWRvczogJytleHBlY3RlZCsnXG5HcmF2YWRvczogJythY3R1YWwrJ1xuRmFsdGFudGVzOiAnK01hdGgubWF4KDAsbWlzc2luZykrJ1xuXG5PIGxvdGUgcGFyY2lhbCBmb2kgZGVzY2FydGFkby4nKTsKICAgICAgICByZW5kZXIoKTtyZXR1cm4KICAgICAgfQogICAgICBwcm9ncmVzcygnTG90ZSBjb25mZXJpZG86ICcrYWN0dWFsKycgZGUgJytleHBlY3RlZCsnIGVudHJlZ2FzLicsNTUpOwogICAgICBsZXQgb2s9YXdhaXQgb3B0aW1pemVCYXRjaCh7c3RhcnQsc2lsZW50OnRydWV9KTsKICAgICAgaWYoIW9rKXtmYWlsUHJvZ3Jlc3MoJ0xvdGUgc2Fsdm8sIG1hcyBhIG90aW1pemHDp8OjbyBmYWxob3UnKTtyZXR1cm59CiAgICAgIGZpbmlzaFByb2dyZXNzKCdSb3RhIHByb250YSBjb20gJythY3R1YWwrJyBlbnRyZWdhcycpOwogICAgICBhbGVydCgnUm90YSBjcmlhZGEsIGNvbmZlcmlkYSBlIG90aW1pemFkYTogJythY3R1YWwrJyBkZSAnK2V4cGVjdGVkKycgZW50cmVnYXMgZ3JhdmFkYXMgY29ycmV0YW1lbnRlLicpCiAgICB9Y2F0Y2goZSl7ZmFpbFByb2dyZXNzKCdGYWxoYSBhbyBnZXJhciByb3RhJyk7YWxlcnQoJ07Do28gZm9pIHBvc3PDrXZlbCBjcmlhciBhIHJvdGE6ICcrKGUubWVzc2FnZXx8ZSkpO3JlbmRlcigpfQogIH07').decode()
           if old_create not in s:
-              raise SystemExit('createBatch marker not found')
+              raise SystemExit('create marker not found')
           s=s.replace(old_create,new_create,1)
           p.write_text(s)
           PY
@@ -88,5 +39,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add index.html route-optimizer.js
-          git diff --cached --quiet || git commit -m "v6.16: valida lote completo e mostra progresso visual"
+          git diff --cached --quiet || git commit -m "v6.16 valida lote completo e progresso visual"
           git push
