@@ -15,20 +15,78 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p=Path("index.html")
+
+          # Mantem deduplicacao de contatos no app principal.
+          p=Path('index.html')
           s=p.read_text()
           if 'route-optimizer.js' not in s:
-              s=s.replace("</body></html>", '<script src="./route-optimizer.js"></script></body></html>')
+              s=s.replace('</body></html>', '<script src="./route-optimizer.js"></script></body></html>')
           old='S.all=a;S.busy=false}'
           new="S.all=[...new Map(a.filter(c=>c.contact_id).map(c=>[c.contact_id,c])).values()];S.busy=false}"
           if old in s:
               s=s.replace(old,new,1)
+          s=s.replace('route-optimizer.js?v=6.15.0','route-optimizer.js?v=6.16.0')
+          p.write_text(s)
+
+          # Progresso visual + validacao atomica da quantidade criada.
+          p=Path('route-optimizer.js')
+          s=p.read_text()
+          s=s.replace('roteirizacao operacional v6.15','roteirizacao operacional v6.16')
+          old_progress="  function progress(t){let b=document.getElementById('optimizeRoute');if(b){b.disabled=true;b.textContent=t}let m=document.getElementById('make');if(m){m.disabled=true;m.textContent=t}}"
+          new_progress=r'''  function routeProgressOverlay(){let o=document.getElementById('routeBuildProgress');if(o)return o;o=document.createElement('div');o.id='routeBuildProgress';o.style.cssText='display:none;position:fixed;inset:0;z-index:99999;background:rgba(10,28,50,.72);align-items:center;justify-content:center;padding:22px';o.innerHTML='<div style="width:min(92vw,460px);background:#fff;border-radius:20px;padding:22px;box-shadow:0 24px 70px #0006"><div style="font-size:11px;font-weight:900;letter-spacing:.12em;color:#0969f0;text-transform:uppercase">Gerando rota</div><div id="routeBuildText" style="font-size:18px;font-weight:900;margin-top:8px">Preparando...</div><div style="height:14px;background:#e6edf5;border-radius:99px;overflow:hidden;margin-top:16px"><div id="routeBuildBar" style="height:100%;width:0;background:#15995b;transition:width .25s ease"></div></div><div id="routeBuildPct" style="font-size:26px;font-weight:900;color:#0969f0;margin-top:9px">0%</div><div style="font-size:12px;color:#6f8297;margin-top:7px;line-height:1.4">Não feche esta página enquanto a rota está sendo preparada.</div></div>';document.body.appendChild(o);return o}
+  function progress(t,p){let b=document.getElementById('optimizeRoute');if(b){b.disabled=true;b.textContent=t}let m=document.getElementById('make');if(m){m.disabled=true;m.textContent=t}let o=routeProgressOverlay();if(p==null){let q=String(t).match(/(\d+) de (\d+)/);if(q)p=Math.min(88,55+Math.round((+q[1]/Math.max(1,+q[2]))*25));else if(/Otimizando/i.test(t))p=82;else if(/Salvando/i.test(t))p=92;else p=20}p=Math.max(0,Math.min(100,Math.round(p)));o.style.display='flex';let tx=document.getElementById('routeBuildText'),bar=document.getElementById('routeBuildBar'),pc=document.getElementById('routeBuildPct');if(tx)tx.textContent=t;if(bar)bar.style.width=p+'%';if(pc)pc.textContent=p+'%'}
+  function finishProgress(t){progress(t||'Concluído',100);setTimeout(()=>{let o=document.getElementById('routeBuildProgress');if(o)o.style.display='none'},650)}
+  function failProgress(t){let o=routeProgressOverlay();o.style.display='flex';let tx=document.getElementById('routeBuildText'),bar=document.getElementById('routeBuildBar'),pc=document.getElementById('routeBuildPct');if(tx)tx.textContent=t||'Não foi possível concluir a rota';if(bar){bar.style.width='100%';bar.style.background='#c43d3d'}if(pc){pc.textContent='ERRO';pc.style.color='#c43d3d'}setTimeout(()=>{if(o)o.style.display='none'},3500)}'''
+          if old_progress not in s:
+              raise SystemExit('progress marker not found')
+          s=s.replace(old_progress,new_progress,1)
+
+          old_create=r'''  createBatch=async function(){
+    let start=await geoPos();if(!start){alert('Ative a localização do iPhone para criar a rota já otimizada a partir de onde você está.');return}
+    progress('Criando rota...');
+    await oldCreateBatch();
+    let b=S.batches?.[0];if(!b)return;
+    await openBatch(b);
+    let ok=await optimizeBatch({start,silent:true});
+    if(ok)alert('Rota criada e otimizada a partir da sua localização. Já pode iniciar as entregas.')
+  };'''
+          new_create=r'''  async function cleanupIncompleteBatch(b){try{let{data:rs}=await db.from('kit_delivery_routes').select('id').eq('batch_id',b.id),ids=(rs||[]).map(r=>r.id);if(ids.length)await db.from('kit_delivery_items').delete().in('route_id',ids);await db.from('kit_delivery_routes').delete().eq('batch_id',b.id);await db.from('kit_delivery_batches').delete().eq('id',b.id)}catch(e){console.error('cleanup incomplete batch',e)}}
+  createBatch=async function(){
+    let expected=S.all.filter(c=>S.sel.has(c.contact_id)&&n(c.address)&&n(c.city)).length;
+    if(!expected){alert('Selecione pelo menos uma entrega válida.');return}
+    progress('Validando '+expected+' entregas...',5);
+    let start=await geoPos();if(!start){failProgress('Localização não autorizada');alert('Ative a localização do iPhone para criar a rota já otimizada a partir de onde você está.');return}
+    try{
+      progress('Criando lote com '+expected+' entregas...',15);
+      await oldCreateBatch();
+      progress('Conferindo gravação do lote...',45);
+      let b=S.batches?.[0];if(!b)throw new Error('O lote não foi criado.');
+      await openBatch(b);
+      let actual=S.items.length;
+      if(actual!==expected){
+        let missing=expected-actual;
+        await cleanupIncompleteBatch(b);
+        S.batch=null;S.routes=[];S.items=[];await loadBatches();S.t='new';
+        failProgress('Lote incompleto: '+actual+' de '+expected);
+        alert('A criação foi interrompida para evitar uma rota incompleta.\n\nEsperados: '+expected+'\nGravados: '+actual+'\nFaltantes: '+Math.max(0,missing)+'\n\nO lote parcial foi descartado. Tente novamente; se persistir, agora o sistema não permitirá perder entregas silenciosamente.');
+        render();return
+      }
+      progress('Lote conferido: '+actual+' de '+expected+' entregas.',55);
+      let ok=await optimizeBatch({start,silent:true});
+      if(!ok){failProgress('Lote salvo, mas a otimização falhou');return}
+      finishProgress('Rota pronta com '+actual+' entregas');
+      alert('Rota criada, conferida e otimizada: '+actual+' de '+expected+' entregas gravadas corretamente.')
+    }catch(e){failProgress('Falha ao gerar rota');alert('Não foi possível criar a rota: '+(e.message||e));render()}
+  };'''
+          if old_create not in s:
+              raise SystemExit('createBatch marker not found')
+          s=s.replace(old_create,new_create,1)
           p.write_text(s)
           PY
       - name: Commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html
-          git diff --cached --quiet || git commit -m "fix: contatos unicos na montagem de rota"
+          git add index.html route-optimizer.js
+          git diff --cached --quiet || git commit -m "v6.16: valida lote completo e mostra progresso visual"
           git push
