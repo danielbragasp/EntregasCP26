@@ -11,21 +11,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Injetar roteirizador no app
+      - name: Aplicar correcoes seguras no app
         run: |
-          if ! grep -q 'route-optimizer.js' index.html; then
-            python3 - <<'PY'
+          python3 - <<'PY'
           from pathlib import Path
           p=Path("index.html")
           s=p.read_text()
-          s=s.replace("</body></html>", '<script src="./route-optimizer.js"></script></body></html>')
+          # Mantem o carregamento do roteirizador.
+          if 'route-optimizer.js' not in s:
+              s=s.replace("</body></html>", '<script src="./route-optimizer.js"></script></body></html>')
+          # A view pode devolver mais de uma linha para o mesmo contato.
+          # A interface e a criacao da rota devem trabalhar com pessoas unicas.
+          old='S.all=a;S.busy=false}'
+          new="S.all=[...new Map(a.filter(c=>c.contact_id).map(c=>[c.contact_id,c])).values()];S.busy=false}"
+          if old in s:
+              s=s.replace(old,new,1)
           p.write_text(s)
           PY
-          fi
       - name: Commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add index.html
-          git diff --cached --quiet || git commit -m "v6.5: ativa roteirizador no app"
+          git diff --cached --quiet || git commit -m "fix: contatos unicos na montagem de rota"
           git push
