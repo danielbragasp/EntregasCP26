@@ -1,10 +1,13 @@
-// Entrega de Kits - roteirizacao operacional v6.15
+// Entrega de Kits - roteirizacao operacional v6.16
 (function(){
   const oldDeliverView=deliverView, oldStatus=status, oldCreateBatch=createBatch;
   function pendingOrdered(){return S.items.filter(i=>i.status!=='delivered').sort((a,b)=>(a.position||999999)-(b.position||999999))}
   function geoPos(){return new Promise(resolve=>{if(!navigator.geolocation)return resolve(null);navigator.geolocation.getCurrentPosition(p=>resolve({lat:p.coords.latitude,lng:p.coords.longitude}),()=>resolve(null),{enableHighAccuracy:true,timeout:10000,maximumAge:30000})})}
   function hav(a,b){const R=6371,toR=v=>v*Math.PI/180,d1=toR(b.lat-a.lat),d2=toR(b.lng-a.lng),x=Math.sin(d1/2)**2+Math.cos(toR(a.lat))*Math.cos(toR(b.lat))*Math.sin(d2/2)**2;return 2*R*Math.asin(Math.sqrt(x))}
-  function progress(t){let b=document.getElementById('optimizeRoute');if(b){b.disabled=true;b.textContent=t}let m=document.getElementById('make');if(m){m.disabled=true;m.textContent=t}}
+  function routeProgressOverlay(){let o=document.getElementById('routeBuildProgress');if(o)return o;o=document.createElement('div');o.id='routeBuildProgress';o.style.cssText='display:none;position:fixed;inset:0;z-index:99999;background:rgba(10,28,50,.72);align-items:center;justify-content:center;padding:22px';o.innerHTML='<div style="width:min(92vw,460px);background:#fff;border-radius:20px;padding:22px"><b id="routeBuildText">Preparando...</b><div style="height:14px;background:#e6edf5;border-radius:99px;overflow:hidden;margin-top:16px"><div id="routeBuildBar" style="height:100%;width:0;background:#15995b"></div></div><div id="routeBuildPct" style="font-size:26px;font-weight:900;color:#0969f0;margin-top:9px">0%</div><small>Não feche esta página enquanto a rota está sendo preparada.</small></div>';document.body.appendChild(o);return o}
+  function progress(t,p){let b=document.getElementById('optimizeRoute');if(b){b.disabled=true;b.textContent=t}let m=document.getElementById('make');if(m){m.disabled=true;m.textContent=t}let o=routeProgressOverlay();if(p==null){let q=String(t).match(/(\d+) de (\d+)/);p=q?Math.min(88,55+Math.round(+q[1]/Math.max(1,+q[2]))*25)):/Otimizando/i.test(t)?82:/Salvando/i.test(t)?92:20}p=Math.max(0,Math.min(100,Math.round(p)));o.style.display='flex';document.getElementById('routeBuildText').textContent=t;document.getElementById('routeBuildBar').style.width=p+'%';document.getElementById('routeBuildPct').textContent=p+'%'}
+  function finishProgress(t){progress(t||'Concluído',100);setTimeout(()=>{let o=document.getElementById('routeBuildProgress');if(o)o.style.display='none'},650)}
+  function failProgress(t){let o=routeProgressOverlay();o.style.display='flex';document.getElementById('routeBuildText').textContent=t||'Falha';document.getElementById('routeBuildBar').style.width='100%';document.getElementById('routeBuildPct').textContent='ERRO';setTimeout(()=>{if(o)o.style.display='none'},3500)}
   async function geocodeItems(items){
     await loadGoogleMaps(); const geocoder=new google.maps.Geocoder(),out=[]; let cursor=0,done=0;
     async function worker(){while(cursor<items.length){let i=items[cursor++];try{let g=await geocodeGoogle(geocoder,address(i.c||{})),loc=g?.pos||g?.location||g?.geometry?.location||g;if(loc){let lat=typeof loc.lat==='function'?loc.lat():loc.lat,lng=typeof loc.lng==='function'?loc.lng():loc.lng;if(Number.isFinite(lat)&&Number.isFinite(lng))out.push({i,lat,lng})}}catch(e){}done++;if(done%10===0||done===items.length)progress('Localizando '+done+' de '+items.length+'...');await sleep(20)}}
@@ -62,14 +65,33 @@
       return true
     }catch(e){alert('Não foi possível otimizar a rota: '+(e.message||e));render();return false}
   }
+  async function cleanupIncompleteBatch(b){try{let{data:rs}=await db.from('kit_delivery_routes').select('id').eq('batch_id',b.id),ids=(rs||[]).map(r=>r.id);if(ids.length)await db.from('kit_delivery_items').delete().in('route_id',ids);await db.from('kit_delivery_routes').delete().eq('batch_id',b.id);await db.from('kit_delivery_batches').delete().eq('id',b.id)}catch(e){console.error('cleanup incomplete batch',e)}}
   createBatch=async function(){
-    let start=await geoPos();if(!start){alert('Ative a localização do iPhone para criar a rota já otimizada a partir de onde você está.');return}
-    progress('Criando rota...');
-    await oldCreateBatch();
-    let b=S.batches?.[0];if(!b)return;
-    await openBatch(b);
-    let ok=await optimizeBatch({start,silent:true});
-    if(ok)alert('Rota criada e otimizada a partir da sua localização. Já pode iniciar as entregas.')
+    let expected=S.all.filter(c=>S.sel.has(c.contact_id)&&n(c.address)&&n(c.city)).length;
+    if(!expected){alert('Selecione pelo menos uma entrega válida.');return}
+    progress('Validando '+expected+' entregas...',5);
+    let start=await geoPos();if(!start){failProgress('Localização não autorizada');alert('Ative a localização do iPhone para criar a rota já otimizada a partir de onde você está.');return}
+    try{
+      progress('Criando lote com '+expected+' entregas...',15);
+      await oldCreateBatch();
+      progress('Conferindo gravação do lote...',45);
+      let b=S.batches?.[0];if(!b)throw new Error('O lote não foi criado.');
+      await openBatch(b);
+      let actual=S.items.length;
+      if(actual!==expected){
+        let missing=expected-actual;
+        await cleanupIncompleteBatch(b);
+        S.batch=null;S.routes=[];S.items=[];await loadBatches();S.t='new';
+        failProgress('Lote incompleto: '+actual+' de '+expected);
+        alert('A criação foi interrompida para evitar uma rota incompleta.\n\nEsperados: '+expected+'\nGravados: '+actual+'\nFaltantes: '+Math.max(0,missing)+'\n\nO lote parcial foi descartado.');
+        render();return
+      }
+      progress('Lote conferido: '+actual+' de '+expected+' entregas.',55);
+      let ok=await optimizeBatch({start,silent:true});
+      if(!ok){failProgress('Lote salvo, mas a otimização falhou');return}
+      finishProgress('Rota pronta com '+actual+' entregas');
+      alert('Rota criada, conferida e otimizada: '+actual+' de '+expected+' entregas gravadas corretamente.')
+    }catch(e){failProgress('Falha ao gerar rota');alert('Não foi possível criar a rota: '+(e.message||e));render()}
   };
   function allOptimized(){let rows=pendingOrdered();if(!rows.length)return '<div class="muted">Nenhuma entrega pendente.</div>';return rows.map((i,k)=>{let c=i.c||{},ph=String(c.phone||'').replace(/\\D/g,''),wa=ph.startsWith('55')?ph:'55'+ph;return '<div class="stop"><div class="num">'+(k+1)+'</div><div class="info"><b>'+x(c.name||'Contato')+'</b><span>'+x(address(c))+'</span>'+(ph?'<a target="_blank" href="https://wa.me/'+wa+'">WhatsApp</a>':'')+' <a target="_blank" href="https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(address(c))+'&travelmode=driving">📍 Abrir GPS</a></div><div class="acts"><button data-i="'+i.id+'" data-s="delivered" class="ok">Entregue</button><button data-i="'+i.id+'" data-s="not_found" class="danger">Não localizado</button></div></div>'}).join('')}
   function completedList(){let rows=S.items.filter(i=>i.status==='delivered').sort((a,b)=>new Date(b.delivered_at||0)-new Date(a.delivered_at||0));if(!rows.length)return '';return '<details class="card"><summary style="cursor:pointer;font-weight:800">✅ Entregas realizadas ('+rows.length+')</summary><div style="margin-top:12px">'+rows.map(i=>'<div class="stop done"><div class="num">✓</div><div class="info"><b>'+x(i.c?.name||'Contato')+'</b><span>'+x(address(i.c||{}))+'</span><span>Entregue '+(i.delivered_at?new Date(i.delivered_at).toLocaleString('pt-BR'):'')+'</span></div><div class="acts"><button data-undo-delivery="'+i.id+'" class="ghost">↩ Desfazer</button></div></div>').join('')+'</div></details>'}
