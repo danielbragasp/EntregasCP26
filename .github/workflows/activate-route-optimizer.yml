@@ -17,11 +17,8 @@ jobs:
           from pathlib import Path
           p=Path("index.html")
           s=p.read_text()
-          # Mantem o carregamento do roteirizador.
           if 'route-optimizer.js' not in s:
               s=s.replace("</body></html>", '<script src="./route-optimizer.js"></script></body></html>')
-          # A view pode devolver mais de uma linha para o mesmo contato.
-          # A interface e a criacao da rota devem trabalhar com pessoas unicas.
           old='S.all=a;S.busy=false}'
           new="S.all=[...new Map(a.filter(c=>c.contact_id).map(c=>[c.contact_id,c])).values()];S.busy=false}"
           if old in s:
