@@ -34,5 +34,5 @@ export default async function handler(req,res){
     const ordered=(route.visits||[]).map(v=>stops[v.shipmentIndex ?? 0]).filter(Boolean);
     const skipped=(j.skippedShipments||[]).map(s=>stops[s.index ?? 0]).filter(Boolean);
     return res.status(200).json({ordered,skipped,metrics:route.metrics||{},polyline:route.routePolyline?.points||null,routeStartTime:route.vehicleStartTime||null,routeEndTime:route.vehicleEndTime||null});
-  }catch(e){return res.status(500).json({error:e.message||String(e)})}
+  }catch(e){console.error('optimize-route failed',e?.stack||e);return res.status(500).json({error:e.message||String(e)})}
 }
