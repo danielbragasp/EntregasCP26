@@ -1,0 +1,60 @@
+name: Adicionar seletor de GPS
+on:
+  push:
+    paths:
+      - '.github/workflows/add-gps-picker.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Adicionar menu GPS e validar
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('route-optimizer.js')
+          s=p.read_text()
+          marker="  function allOptimized(){"
+          helper=r'''  function gpsPicker(addressText){
+    const destination=String(addressText||'').trim();if(!destination)return;
+    let old=document.getElementById('gpsAppPicker');if(old)old.remove();
+    let o=document.createElement('div');o.id='gpsAppPicker';o.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(10,28,50,.55);display:flex;align-items:flex-end;justify-content:center;padding:14px';
+    let enc=encodeURIComponent(destination);
+    o.innerHTML='<div style="width:min(100%,520px);background:#fff;border-radius:22px;padding:18px;box-shadow:0 16px 50px rgba(0,0,0,.28)"><div style="font-weight:900;font-size:20px;margin-bottom:4px">Abrir rota com</div><div style="font-size:13px;color:#667085;margin-bottom:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+x(destination)+'</div><button data-gps-url="https://www.google.com/maps/dir/?api=1&destination='+enc+'&travelmode=driving" style="width:100%;padding:15px;margin:5px 0;border:0;border-radius:14px;font-weight:800;font-size:16px">Google Maps</button><button data-gps-url="https://waze.com/ul?q='+enc+'&navigate=yes" style="width:100%;padding:15px;margin:5px 0;border:0;border-radius:14px;font-weight:800;font-size:16px">Waze</button><button data-gps-url="https://maps.apple.com/?daddr='+enc+'&dirflg=d" style="width:100%;padding:15px;margin:5px 0;border:0;border-radius:14px;font-weight:800;font-size:16px">Apple Maps</button><button data-gps-cancel style="width:100%;padding:14px;margin-top:8px;border:1px solid #d0d5dd;background:#fff;border-radius:14px;font-weight:800">Cancelar</button></div>';
+    document.body.appendChild(o);
+    o.addEventListener('click',e=>{let b=e.target.closest('[data-gps-url]');if(b){let u=b.getAttribute('data-gps-url');o.remove();window.location.href=u;return}if(e.target===o||e.target.closest('[data-gps-cancel]'))o.remove()});
+  }
+'''
+          if 'function gpsPicker(' not in s:
+              if marker not in s: raise SystemExit('Marcador allOptimized não encontrado')
+              s=s.replace(marker,helper+marker,1)
+          old="<a target=\"_blank\" href=\"https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(address(c))+'&travelmode=driving\">📍 Abrir GPS</a>"
+          new="<a href=\"#\" data-gps-address=\"'+x(address(c))+'\">📍 Abrir GPS</a>"
+          if old in s: s=s.replace(old,new)
+          # Instala captura global também para botões/links antigos da tela de entrega.
+          hook=r'''
+  document.addEventListener('click',function(e){
+    let a=e.target.closest('[data-gps-address]');if(a){e.preventDefault();gpsPicker(a.getAttribute('data-gps-address'));return}
+    let legacy=e.target.closest('a[href*="google.com/maps/dir"],a[href*="maps.google.com"],a[href*="google.com/maps/search"]');
+    if(!legacy)return;
+    let txt='';try{let u=new URL(legacy.href,location.href);txt=u.searchParams.get('destination')||u.searchParams.get('query')||u.searchParams.get('q')||''}catch(_e){}
+    if(txt){e.preventDefault();gpsPicker(txt)}
+  },true);
+'''
+          end='})();'
+          if hook.strip() not in s:
+              pos=s.rfind(end)
+              if pos<0: raise SystemExit('Fim do IIFE não encontrado')
+              s=s[:pos]+hook+s[pos:]
+          p.write_text(s)
+          PY
+          node --check route-optimizer.js
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add route-optimizer.js
+          git commit -m "feat: permite escolher Google Maps Waze ou Apple Maps"
+          git push
