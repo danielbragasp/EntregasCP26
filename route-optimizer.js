@@ -1,4 +1,4 @@
-// Entrega de Kits - roteirizacao operacional v6.14
+// Entrega de Kits - roteirizacao operacional v6.14.1
 (function(){
   const oldDeliverView=deliverView, oldStatus=status, oldCreateBatch=createBatch;
   function pendingOrdered(){return S.items.filter(i=>i.status!=='delivered').sort((a,b)=>(a.position||999999)-(b.position||999999))}
@@ -14,7 +14,8 @@
   function dirOptimize(rows,origin){return new Promise(resolve=>{if(rows.length<3)return resolve(rows);let svc=new google.maps.DirectionsService(),dest=rows[rows.length-1],mid=rows.slice(0,-1);svc.route({origin,destination:{lat:dest.lat,lng:dest.lng},waypoints:mid.map(r=>({location:{lat:r.lat,lng:r.lng},stopover:true})),optimizeWaypoints:true,travelMode:google.maps.TravelMode.DRIVING},(res,st)=>{if(st!=='OK'||!res?.routes?.[0])return resolve(rows);let ord=res.routes[0].waypoint_order||[],sorted=ord.map(k=>mid[k]);sorted.push(dest);resolve(sorted)})})}
   async function saveOrder(seq){let parts=chunk(seq,25),done=0;for(let part of parts){let now=new Date().toISOString();let rs=await Promise.all(part.map((i,j)=>db.from('kit_delivery_items').update({position:done+j+1,updated_at:now}).eq('id',i.id)));let bad=rs.find(r=>r.error);if(bad)throw bad.error;done+=part.length;progress('Salvando rota '+done+' de '+seq.length+'...')}}
   async function geocodeAddressText(text){await loadGoogleMaps();let g=await geocodeGoogle(new google.maps.Geocoder(),text);let loc=g?.pos||g?.location||g?.geometry?.location||g;if(!loc)return null;let lat=typeof loc.lat==='function'?loc.lat():loc.lat,lng=typeof loc.lng==='function'?loc.lng():loc.lng;return Number.isFinite(lat)&&Number.isFinite(lng)?{lat,lng}:null}
-  function todayEndIso(hhmm){let m=String(hhmm||'').match(/^(\d{1,2}):(\d{2})$/);if(!m)return null;let d=new Date(),h=+m[1],mi=+m[2];d.setHours(h,mi,0,0);return d>new Date()?d.toISOString():null}
+  function workWindow(startHHMM,endHHMM){let sm=String(startHHMM||'').match(/^(\d{1,2}):(\d{2})$/),em=String(endHHMM||'').match(/^(\d{1,2}):(\d{2})$/);if(!sm||!em)return null;let now=new Date(),start=new Date(now),end=new Date(now);start.setHours(+sm[1],+sm[2],0,0);end.setHours(+em[1],+em[2],0,0);if(end<=start)end.setDate(end.getDate()+1);if(start<now)start=new Date(now);if(end<=start)return null;return{start,end,startIso:start.toISOString(),endIso:end.toISOString(),hours:(end-start)/3600000}}
+  function fmtDT(d){return d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}
   async function optimizeToDestination(){
     let addr=(document.getElementById('routeEndAddress')?.value||'').trim(),startTime=document.getElementById('routeStartTime')?.value||'',time=document.getElementById('routeEndTime')?.value||'';
     if(!addr){alert('Informe o destino final do entregador.');return}
