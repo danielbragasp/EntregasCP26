@@ -1,0 +1,14 @@
+name: Validar roteirizador
+on:
+  push:
+    paths:
+      - 'route-optimizer.js'
+      - '.github/workflows/check-route-js.yml'
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar JavaScript
+        run: node --check route-optimizer.js
