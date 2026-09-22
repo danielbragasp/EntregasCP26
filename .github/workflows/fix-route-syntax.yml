@@ -1,0 +1,33 @@
+name: Corrigir sintaxe do roteirizador
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-route-syntax.yml'
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Corrigir e validar
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('route-optimizer.js')
+          s=p.read_text()
+          old="p=q?Math.min(88,55+Math.round(+q[1]/Math.max(1,+q[2]))*25)):/Otimizando/i.test(t)?82:/Salvando/i.test(t)?92:20"
+          new="p=q?Math.min(88,55+Math.round(+q[1]/Math.max(1,+q[2]))*25):/Otimizando/i.test(t)?82:/Salvando/i.test(t)?92:20"
+          if old not in s:
+              raise SystemExit('Trecho com erro não encontrado')
+          s=s.replace(old,new,1)
+          p.write_text(s)
+          PY
+          node --check route-optimizer.js
+      - name: Commit da correção
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add route-optimizer.js
+          git commit -m "fix: corrige sintaxe do progresso da rota"
+          git push
